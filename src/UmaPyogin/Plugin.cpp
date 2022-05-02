@@ -22,15 +22,6 @@ namespace UmaPyogin
 	void Plugin::LoadConfig(Config&& config)
 	{
 		m_Config = std::move(config);
-
-		Log::Info("UmaPyogin: Loading localization files");
-
-		auto& staticLocalization = Localization::StaticLocalization::GetInstance();
-		staticLocalization.LoadFrom(config.StaticLocalizationFilePath);
-		// auto& hashLocalization = Localization::HashLocalization::GetInstance();
-		// hashLocalization.LoadFrom(config.HashLocalizationDirPath);
-		auto& storyLocalization = Localization::StoryLocalization::GetInstance();
-		storyLocalization.LoadFrom(config.StoryLocalizationDirPath);
 	}
 
 	void Plugin::InstallHook(std::unique_ptr<HookInstaller>&& hookInstaller)

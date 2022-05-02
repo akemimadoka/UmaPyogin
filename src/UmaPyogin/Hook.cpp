@@ -733,6 +733,18 @@ namespace
 	{
 		const auto ret = il2cpp_init_Orig(domain_name);
 		InjectFunctions();
+
+		Log::Info("UmaPyogin: Loading localization files");
+
+		const auto& config = Plugin::GetInstance().GetConfig();
+
+		auto& staticLocalization = Localization::StaticLocalization::GetInstance();
+		staticLocalization.LoadFrom(config.StaticLocalizationFilePath);
+		auto& hashLocalization = Localization::HashLocalization::GetInstance();
+		hashLocalization.LoadFrom(config.HashLocalizationDirPath);
+		auto& storyLocalization = Localization::StoryLocalization::GetInstance();
+		storyLocalization.LoadFrom(config.StoryLocalizationDirPath);
+
 		Log::Info("UmaPyogin: Initialized");
 		return ret;
 	}

@@ -50,8 +50,8 @@ namespace UmaPyogin::Localization
 		    parser.parse(buffer->data(), buffer->size() - simdjson::SIMDJSON_PADDING, false);
 		if (document.error() != simdjson::SUCCESS)
 		{
-			Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})",
-			           path.native(), document.error());
+			Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})", path.native(),
+			           document.error());
 			return;
 		}
 
@@ -104,7 +104,7 @@ namespace UmaPyogin::Localization
 	if (const auto err = expr.error(); err != simdjson::SUCCESS)                                   \
 	{                                                                                              \
 		Log::Error("UmaPyogin: Malformed localization file {}, error {} while get " #expr,         \
-		           path.native(), err);                                                    \
+		           path.native(), err);                                                            \
 		return;                                                                                    \
 	}
 
@@ -112,49 +112,57 @@ namespace UmaPyogin::Localization
 	{
 		assert(std::filesystem::is_directory(path));
 
-		for (const auto& entry : std::filesystem::recursive_directory_iterator(
-		         path, std::filesystem::directory_options::follow_directory_symlink))
+		try
 		{
-			if (!entry.is_regular_file() || entry.path().extension() != ".json")
+			for (const auto& entry : std::filesystem::recursive_directory_iterator(
+			         path, std::filesystem::directory_options::follow_directory_symlink))
 			{
-				continue;
-			}
-
-			auto buffer = ReadFileWithPadding(entry.path());
-			if (!buffer)
-			{
-				continue;
-			}
-
-			simdjson::dom::parser parser;
-			auto document =
-			    parser.parse(buffer->data(), buffer->size() - simdjson::SIMDJSON_PADDING, false);
-			if (document.error() != simdjson::SUCCESS)
-			{
-				Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})",
-				           entry.path().native(), document.error());
-				continue;
-			}
-
-			const auto hashEntries = document.get_object();
-			CHECK_ERROR(hashEntries);
-
-			for (const auto& [key, value] : hashEntries)
-			{
-				const auto valueStr = value.get_string();
-				CHECK_ERROR(valueStr);
-
-				std::size_t hash;
-				if (const auto ec = std::from_chars(key.data(), key.data() + key.size(), hash);
-				    ec.ec != std::errc())
+				if (!entry.is_regular_file() || entry.path().extension() != ".json")
 				{
-					Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})",
-					           entry.path().native(), static_cast<int>(ec.ec));
 					continue;
 				}
-				const auto localizedString = valueStr.value_unsafe();
-				m_LocalizedStrings.emplace(hash, Misc::ToUTF16(localizedString));
+
+				auto buffer = ReadFileWithPadding(entry.path());
+				if (!buffer)
+				{
+					continue;
+				}
+
+				simdjson::dom::parser parser;
+				auto document = parser.parse(buffer->data(),
+				                             buffer->size() - simdjson::SIMDJSON_PADDING, false);
+				if (document.error() != simdjson::SUCCESS)
+				{
+					Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})",
+					           entry.path().native(), document.error());
+					continue;
+				}
+
+				const auto hashEntries = document.get_object();
+				CHECK_ERROR(hashEntries);
+
+				for (const auto& [key, value] : hashEntries)
+				{
+					const auto valueStr = value.get_string();
+					CHECK_ERROR(valueStr);
+
+					std::size_t hash;
+					if (const auto ec = std::from_chars(key.data(), key.data() + key.size(), hash);
+					    ec.ec != std::errc())
+					{
+						Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})",
+						           entry.path().native(), static_cast<int>(ec.ec));
+						continue;
+					}
+					const auto localizedString = valueStr.value_unsafe();
+					m_LocalizedStrings.emplace(hash, Misc::ToUTF16(localizedString));
+				}
 			}
+		}
+		catch (const std::exception& e)
+		{
+			Log::Error("UmaPyogin: Failed to load hash localization file {}: {}", path.native(),
+			           e.what());
 		}
 	}
 
@@ -180,28 +188,36 @@ namespace UmaPyogin::Localization
 
 		assert(std::filesystem::is_directory(path));
 
-		for (const auto& entry : std::filesystem::recursive_directory_iterator(
-		         path, std::filesystem::directory_options::follow_directory_symlink))
+		try
 		{
-			if (!entry.is_regular_file() || entry.path().extension() != ".json")
+			for (const auto& entry : std::filesystem::recursive_directory_iterator(
+			         path, std::filesystem::directory_options::follow_directory_symlink))
 			{
-				continue;
-			}
+				if (!entry.is_regular_file() || entry.path().extension() != ".json")
+				{
+					continue;
+				}
 
-			const auto filePath = entry.path();
-			const auto fileStem = filePath.stem();
-			if (fileStem.native().starts_with(StoryTimelinePrefix))
-			{
-				const auto timelineId =
-				    std::stoi(fileStem.native().substr(sizeof(StoryTimelinePrefix) - 1));
-				LoadTimeline(timelineId, filePath);
+				const auto filePath = entry.path();
+				const auto fileStem = filePath.stem();
+				if (fileStem.native().starts_with(StoryTimelinePrefix))
+				{
+					const auto timelineId =
+					    std::stoi(fileStem.native().substr(sizeof(StoryTimelinePrefix) - 1));
+					LoadTimeline(timelineId, filePath);
+				}
+				else if (fileStem.native().starts_with(StoryRacePrefix))
+				{
+					const auto raceId =
+					    std::stoi(fileStem.native().substr(sizeof(StoryRacePrefix) - 1));
+					LoadRace(raceId, filePath);
+				}
 			}
-			else if (fileStem.native().starts_with(StoryRacePrefix))
-			{
-				const auto raceId =
-				    std::stoi(fileStem.native().substr(sizeof(StoryRacePrefix) - 1));
-				LoadRace(raceId, filePath);
-			}
+		}
+		catch (const std::exception& e)
+		{
+			Log::Error("UmaPyogin: Failed to load story localization from {}: {}", path.native(),
+			           e.what());
 		}
 	}
 
@@ -237,8 +253,8 @@ namespace UmaPyogin::Localization
 		    parser.parse(buffer->data(), buffer->size() - simdjson::SIMDJSON_PADDING, false);
 		if (document.error() != simdjson::SUCCESS)
 		{
-			Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})",
-			           path.native(), document.error());
+			Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})", path.native(),
+			           document.error());
 			return;
 		}
 
@@ -303,8 +319,8 @@ namespace UmaPyogin::Localization
 		    parser.parse(buffer->data(), buffer->size() - simdjson::SIMDJSON_PADDING, false);
 		if (document.error() != simdjson::SUCCESS)
 		{
-			Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})",
-			           path.native(), document.error());
+			Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})", path.native(),
+			           document.error());
 			return;
 		}
 
