@@ -330,7 +330,12 @@ namespace
 			else if (assetClass == StoryRaceTextAssetClass)
 			{
 				const auto assetPath = std::filesystem::path(name->chars).stem();
+#ifdef _WIN32
+				const auto assetNameStr = assetPath.string();
+				const auto assetName = static_cast<std::string_view>(assetNameStr);
+#else
 				const auto assetName = static_cast<std::string_view>(assetPath.native());
+#endif
 				constexpr const char RacePrefix[] = "storyrace_";
 				assert(assetName.starts_with(RacePrefix));
 				const auto raceId = static_cast<std::size_t>(

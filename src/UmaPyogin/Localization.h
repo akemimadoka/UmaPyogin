@@ -6,6 +6,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <mutex>
 
 namespace UmaPyogin::Localization
 {
@@ -83,8 +84,8 @@ namespace UmaPyogin::Localization
 		std::unordered_map<std::size_t, StoryTextData> m_StoryTextDataMap;
 		std::unordered_map<std::size_t, RaceTextData> m_RaceTextDataMap;
 
-		void LoadTimeline(std::size_t timelineId, std::filesystem::path const& path);
-		void LoadRace(std::size_t raceId, std::filesystem::path const& path);
+		void LoadTimeline(std::size_t timelineId, std::filesystem::path const& path, std::mutex& mutex);
+		void LoadRace(std::size_t raceId, std::filesystem::path const& path, std::mutex& mutex);
 	};
 } // namespace UmaPyogin::Localization
 

@@ -8,6 +8,12 @@
 
 #include <simdjson.h>
 
+#ifdef _WIN32
+#define PATH_STR(path) (path).string()
+#else
+#define PATH_STR(path) (path).native()
+#endif
+
 namespace UmaPyogin::Localization
 {
 	namespace
@@ -17,7 +23,7 @@ namespace UmaPyogin::Localization
 			std::ifstream file(path, std::ios_base::binary | std::ios_base::ate);
 			if (!file.is_open())
 			{
-				Log::Error("UmaPyogin: Failed to open localization file {}", path.native());
+				Log::Error("UmaPyogin: Failed to open localization file {}", PATH_STR(path));
 				return {};
 			}
 
@@ -50,7 +56,7 @@ namespace UmaPyogin::Localization
 		    parser.parse(buffer->data(), buffer->size() - simdjson::SIMDJSON_PADDING, false);
 		if (document.error() != simdjson::SUCCESS)
 		{
-			Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})", path.native(),
+			Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})", PATH_STR(path),
 			           document.error());
 			return;
 		}
@@ -104,7 +110,7 @@ namespace UmaPyogin::Localization
 	if (const auto err = expr.error(); err != simdjson::SUCCESS)                                   \
 	{                                                                                              \
 		Log::Error("UmaPyogin: Malformed localization file {}, error {} while get " #expr,         \
-		           path.native(), err);                                                            \
+		           PATH_STR(path), err);                                                           \
 		return;                                                                                    \
 	}
 
@@ -114,54 +120,59 @@ namespace UmaPyogin::Localization
 
 		try
 		{
-			for (const auto& entry : std::filesystem::recursive_directory_iterator(
-			         path, std::filesystem::directory_options::follow_directory_symlink))
-			{
-				if (!entry.is_regular_file() || entry.path().extension() != ".json")
-				{
-					continue;
-				}
+			std::mutex mutex;
+			Misc::Parallel::ForEach(
+			    std::filesystem::recursive_directory_iterator(
+			        path, std::filesystem::directory_options::follow_directory_symlink),
+			    std::filesystem::recursive_directory_iterator(),
+			    [&](std::filesystem::directory_entry const& entry) {
+				    if (!entry.is_regular_file() || entry.path().extension() != ".json")
+				    {
+					    return;
+				    }
 
-				auto buffer = ReadFileWithPadding(entry.path());
-				if (!buffer)
-				{
-					continue;
-				}
+				    auto buffer = ReadFileWithPadding(entry.path());
+				    if (!buffer)
+				    {
+					    return;
+				    }
 
-				simdjson::dom::parser parser;
-				auto document = parser.parse(buffer->data(),
-				                             buffer->size() - simdjson::SIMDJSON_PADDING, false);
-				if (document.error() != simdjson::SUCCESS)
-				{
-					Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})",
-					           entry.path().native(), document.error());
-					continue;
-				}
+				    simdjson::dom::parser parser;
+				    auto document = parser.parse(
+				        buffer->data(), buffer->size() - simdjson::SIMDJSON_PADDING, false);
+				    if (document.error() != simdjson::SUCCESS)
+				    {
+					    Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})",
+					               PATH_STR(entry.path()), document.error());
+					    return;
+				    }
 
-				const auto hashEntries = document.get_object();
-				CHECK_ERROR(hashEntries);
+				    const auto hashEntries = document.get_object();
+				    CHECK_ERROR(hashEntries);
 
-				for (const auto& [key, value] : hashEntries)
-				{
-					const auto valueStr = value.get_string();
-					CHECK_ERROR(valueStr);
+				    for (const auto& [key, value] : hashEntries)
+				    {
+					    const auto valueStr = value.get_string();
+					    CHECK_ERROR(valueStr);
 
-					std::size_t hash;
-					if (const auto ec = std::from_chars(key.data(), key.data() + key.size(), hash);
-					    ec.ec != std::errc())
-					{
-						Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})",
-						           entry.path().native(), static_cast<int>(ec.ec));
-						continue;
-					}
-					const auto localizedString = valueStr.value_unsafe();
-					m_LocalizedStrings.emplace(hash, Misc::ToUTF16(localizedString));
-				}
-			}
+					    std::size_t hash;
+					    if (const auto ec =
+					            std::from_chars(key.data(), key.data() + key.size(), hash);
+					        ec.ec != std::errc())
+					    {
+						    Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})",
+						               PATH_STR(entry.path()), static_cast<int>(ec.ec));
+						    continue;
+					    }
+					    const auto localizedString = valueStr.value_unsafe();
+					    std::unique_lock lock(mutex);
+					    m_LocalizedStrings.emplace(hash, Misc::ToUTF16(localizedString));
+				    }
+			    });
 		}
 		catch (const std::exception& e)
 		{
-			Log::Error("UmaPyogin: Failed to load hash localization file {}: {}", path.native(),
+			Log::Error("UmaPyogin: Failed to load hash localization file {}: {}", PATH_STR(path),
 			           e.what());
 		}
 	}
@@ -183,40 +194,51 @@ namespace UmaPyogin::Localization
 
 	void StoryLocalization::LoadFrom(std::filesystem::path const& path)
 	{
-		constexpr const char StoryTimelinePrefix[] = "storytimeline_";
-		constexpr const char StoryRacePrefix[] = "storyrace_";
+#ifdef _WIN32
+#define PATH_LITERAL(x) L##x
+#else
+#define PATH_LITERAL(x) x
+#endif
+		constexpr const std::filesystem::path::value_type StoryTimelinePrefix[] =
+		    PATH_LITERAL("storytimeline_");
+		constexpr const std::filesystem::path::value_type StoryRacePrefix[] =
+		    PATH_LITERAL("storyrace_");
+#undef PATH_LITERAL
 
 		assert(std::filesystem::is_directory(path));
 
 		try
 		{
-			for (const auto& entry : std::filesystem::recursive_directory_iterator(
-			         path, std::filesystem::directory_options::follow_directory_symlink))
-			{
-				if (!entry.is_regular_file() || entry.path().extension() != ".json")
-				{
-					continue;
-				}
+			std::mutex mutex;
+			Misc::Parallel::ForEach(
+			    std::filesystem::recursive_directory_iterator(
+			        path, std::filesystem::directory_options::follow_directory_symlink),
+			    std::filesystem::recursive_directory_iterator(),
+			    [&](std::filesystem::directory_entry const& entry) {
+				    if (!entry.is_regular_file() || entry.path().extension() != ".json")
+				    {
+					    return;
+				    }
 
-				const auto filePath = entry.path();
-				const auto fileStem = filePath.stem();
-				if (fileStem.native().starts_with(StoryTimelinePrefix))
-				{
-					const auto timelineId =
-					    std::stoi(fileStem.native().substr(sizeof(StoryTimelinePrefix) - 1));
-					LoadTimeline(timelineId, filePath);
-				}
-				else if (fileStem.native().starts_with(StoryRacePrefix))
-				{
-					const auto raceId =
-					    std::stoi(fileStem.native().substr(sizeof(StoryRacePrefix) - 1));
-					LoadRace(raceId, filePath);
-				}
-			}
+				    const auto filePath = entry.path();
+				    const auto fileStem = filePath.stem();
+				    if (fileStem.native().starts_with(StoryTimelinePrefix))
+				    {
+					    const auto timelineId =
+					        std::stoi(fileStem.native().substr(sizeof(StoryTimelinePrefix) - 1));
+					    LoadTimeline(timelineId, filePath, mutex);
+				    }
+				    else if (fileStem.native().starts_with(StoryRacePrefix))
+				    {
+					    const auto raceId =
+					        std::stoi(fileStem.native().substr(sizeof(StoryRacePrefix) - 1));
+					    LoadRace(raceId, filePath, mutex);
+				    }
+			    });
 		}
 		catch (const std::exception& e)
 		{
-			Log::Error("UmaPyogin: Failed to load story localization from {}: {}", path.native(),
+			Log::Error("UmaPyogin: Failed to load story localization from {}: {}", PATH_STR(path),
 			           e.what());
 		}
 	}
@@ -240,7 +262,8 @@ namespace UmaPyogin::Localization
 		return nullptr;
 	}
 
-	void StoryLocalization::LoadTimeline(std::size_t timelineId, std::filesystem::path const& path)
+	void StoryLocalization::LoadTimeline(std::size_t timelineId, std::filesystem::path const& path,
+	                                     std::mutex& mutex)
 	{
 		auto buffer = ReadFileWithPadding(path);
 		if (!buffer)
@@ -253,7 +276,7 @@ namespace UmaPyogin::Localization
 		    parser.parse(buffer->data(), buffer->size() - simdjson::SIMDJSON_PADDING, false);
 		if (document.error() != simdjson::SUCCESS)
 		{
-			Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})", path.native(),
+			Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})", PATH_STR(path),
 			           document.error());
 			return;
 		}
@@ -303,10 +326,12 @@ namespace UmaPyogin::Localization
 			}
 		}
 
+		std::unique_lock lock(mutex);
 		m_StoryTextDataMap.emplace(timelineId, std::move(data));
 	}
 
-	void StoryLocalization::LoadRace(std::size_t raceId, std::filesystem::path const& path)
+	void StoryLocalization::LoadRace(std::size_t raceId, std::filesystem::path const& path,
+	                                 std::mutex& mutex)
 	{
 		auto buffer = ReadFileWithPadding(path);
 		if (!buffer)
@@ -319,7 +344,7 @@ namespace UmaPyogin::Localization
 		    parser.parse(buffer->data(), buffer->size() - simdjson::SIMDJSON_PADDING, false);
 		if (document.error() != simdjson::SUCCESS)
 		{
-			Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})", path.native(),
+			Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})", PATH_STR(path),
 			           document.error());
 			return;
 		}
@@ -336,6 +361,7 @@ namespace UmaPyogin::Localization
 			data.textData.emplace_back(Misc::ToUTF16(text.value_unsafe()));
 		}
 
+		std::unique_lock lock(mutex);
 		m_RaceTextDataMap.emplace(raceId, std::move(data));
 	}
 } // namespace UmaPyogin::Localization
