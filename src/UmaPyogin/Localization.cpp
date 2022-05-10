@@ -121,7 +121,7 @@ namespace UmaPyogin::Localization
 		try
 		{
 			std::mutex mutex;
-			Misc::Parallel::ForEach(
+			Misc::Parallel::OnePassForEach(
 			    std::filesystem::recursive_directory_iterator(
 			        path, std::filesystem::directory_options::follow_directory_symlink),
 			    std::filesystem::recursive_directory_iterator(),
@@ -209,8 +209,9 @@ namespace UmaPyogin::Localization
 
 		try
 		{
-			std::mutex mutex;
-			Misc::Parallel::ForEach(
+			std::mutex timeLineMutex;
+			std::mutex raceMutex;
+			Misc::Parallel::OnePassForEach(
 			    std::filesystem::recursive_directory_iterator(
 			        path, std::filesystem::directory_options::follow_directory_symlink),
 			    std::filesystem::recursive_directory_iterator(),
@@ -226,13 +227,13 @@ namespace UmaPyogin::Localization
 				    {
 					    const auto timelineId =
 					        std::stoi(fileStem.native().substr(sizeof(StoryTimelinePrefix) - 1));
-					    LoadTimeline(timelineId, filePath, mutex);
+					    LoadTimeline(timelineId, filePath, timeLineMutex);
 				    }
 				    else if (fileStem.native().starts_with(StoryRacePrefix))
 				    {
 					    const auto raceId =
 					        std::stoi(fileStem.native().substr(sizeof(StoryRacePrefix) - 1));
-					    LoadRace(raceId, filePath, mutex);
+					    LoadRace(raceId, filePath, raceMutex);
 				    }
 			    });
 		}

@@ -743,12 +743,26 @@ namespace
 
 		const auto& config = Plugin::GetInstance().GetConfig();
 
-		auto& staticLocalization = Localization::StaticLocalization::GetInstance();
-		staticLocalization.LoadFrom(config.StaticLocalizationFilePath);
-		auto& hashLocalization = Localization::HashLocalization::GetInstance();
-		hashLocalization.LoadFrom(config.HashLocalizationDirPath);
-		auto& storyLocalization = Localization::StoryLocalization::GetInstance();
-		storyLocalization.LoadFrom(config.StoryLocalizationDirPath);
+		const std::filesystem::path staticLocalizationFilePath = config.StaticLocalizationFilePath;
+		if (std::filesystem::is_regular_file(staticLocalizationFilePath))
+		{
+			auto& staticLocalization = Localization::StaticLocalization::GetInstance();
+			staticLocalization.LoadFrom(staticLocalizationFilePath);
+		}
+
+		const std::filesystem::path hashLocalizationDirPath = config.HashLocalizationDirPath;
+		if (std::filesystem::is_directory(hashLocalizationDirPath))
+		{
+			auto& hashLocalization = Localization::HashLocalization::GetInstance();
+			hashLocalization.LoadFrom(hashLocalizationDirPath);
+		}
+
+		const std::filesystem::path storyLocalizationDirPath = config.StoryLocalizationDirPath;
+		if (std::filesystem::is_directory(storyLocalizationDirPath))
+		{
+			auto& storyLocalization = Localization::StoryLocalization::GetInstance();
+			storyLocalization.LoadFrom(storyLocalizationDirPath);
+		}
 
 		Log::Info("UmaPyogin: Initialized");
 		return ret;
