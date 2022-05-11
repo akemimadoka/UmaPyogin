@@ -1,10 +1,17 @@
 #ifndef UMAPYOGIN_MISC_H
 #define UMAPYOGIN_MISC_H
 
+#include <iterator>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <type_traits>
 #include <vector>
+
+#if __has_include(<concepts>)
+#include <concepts>
+#define HAS_CONCEPTS 1
+#endif
 
 namespace UmaPyogin
 {
@@ -20,9 +27,17 @@ namespace UmaPyogin
 
 		namespace Parallel
 		{
+#if HAS_CONCEPTS
+			template <std::forward_iterator ForwardIterator, typename Sentinel, typename Callable>
+			void
+#else
 			template <typename ForwardIterator, typename Sentinel, typename Callable>
-			void ForEach(ForwardIterator begin, Sentinel end, Callable&& func,
-			             std::size_t concurrentSize = std::thread::hardware_concurrency())
+			std::enable_if_t<std::is_base_of_v<
+			    std::forward_iterator_tag,
+			    typename std::iterator_traits<ForwardIterator>::iterator_category>>
+#endif
+			ForEach(ForwardIterator begin, Sentinel end, Callable&& func,
+			        std::size_t concurrentSize = std::thread::hardware_concurrency())
 			{
 				std::vector<std::thread> threads(concurrentSize);
 				std::size_t totalSize = 0;
@@ -52,9 +67,17 @@ namespace UmaPyogin
 				}
 			}
 
-			template <typename ForwardIterator, typename Sentinel, typename Callable>
-			void OnePassForEach(ForwardIterator begin, Sentinel end, Callable&& func,
-			                    std::size_t concurrentSize = std::thread::hardware_concurrency())
+#if HAS_CONCEPTS
+			template <std::input_iterator InputIterator, typename Sentinel, typename Callable>
+			void
+#else
+			template <typename InputIterator, typename Sentinel, typename Callable>
+			std::enable_if_t<
+			    std::is_base_of_v<std::input_iterator_tag,
+			                      typename std::iterator_traits<InputIterator>::iterator_category>>
+#endif
+			OnePassForEach(InputIterator begin, Sentinel end, Callable&& func,
+			               std::size_t concurrentSize = std::thread::hardware_concurrency())
 			{
 				std::vector<std::thread> threads(concurrentSize);
 				std::vector values(begin, end);

@@ -1,4 +1,3 @@
-from __future__ import generators
 from conans import ConanFile, CMake, tools
 
 class UmaPyoginConan(ConanFile):
