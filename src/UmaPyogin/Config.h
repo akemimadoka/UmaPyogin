@@ -43,8 +43,11 @@ namespace UmaPyogin
 
 #define CONFIG_ENTRIES(X)                                                                          \
 	X(String, StaticLocalizationFilePath)                                                          \
-	X(String, HashLocalizationDirPath)                                                             \
 	X(String, StoryLocalizationDirPath)                                                            \
+	X(String, TextDataDictPath)                                                                    \
+	X(String, CharacterSystemTextDataDictPath)                                                     \
+	X(String, RaceJikkyoCommentDataDictPath)                                                       \
+	X(String, RaceJikkyoMessageDataDictPath)                                                       \
 	X(String, ExtraAssetBundlePath)                                                                \
 	X(String, ReplaceFontPath)                                                                     \
 	X(Int, OverrideFPS)

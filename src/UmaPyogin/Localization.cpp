@@ -100,90 +100,12 @@ namespace UmaPyogin::Localization
 		return nullptr;
 	}
 
-	HashLocalization& HashLocalization::GetInstance()
-	{
-		static HashLocalization s_Instance;
-		return s_Instance;
-	}
-
 #define CHECK_ERROR(expr)                                                                          \
 	if (const auto err = expr.error(); err != simdjson::SUCCESS)                                   \
 	{                                                                                              \
 		Log::Error("UmaPyogin: Malformed localization file {}, error {} while get " #expr,         \
 		           PATH_STR(path), err);                                                           \
 		return;                                                                                    \
-	}
-
-	void HashLocalization::LoadFrom(std::filesystem::path const& path)
-	{
-		assert(std::filesystem::is_directory(path));
-
-		try
-		{
-			std::mutex mutex;
-			Misc::Parallel::OnePassForEach(
-			    std::filesystem::recursive_directory_iterator(
-			        path, std::filesystem::directory_options::follow_directory_symlink),
-			    std::filesystem::recursive_directory_iterator(),
-			    [&](std::filesystem::directory_entry const& entry) {
-				    if (!entry.is_regular_file() || entry.path().extension() != ".json")
-				    {
-					    return;
-				    }
-
-				    auto buffer = ReadFileWithPadding(entry.path());
-				    if (!buffer)
-				    {
-					    return;
-				    }
-
-				    simdjson::dom::parser parser;
-				    auto document = parser.parse(
-				        buffer->data(), buffer->size() - simdjson::SIMDJSON_PADDING, false);
-				    if (document.error() != simdjson::SUCCESS)
-				    {
-					    Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})",
-					               PATH_STR(entry.path()), document.error());
-					    return;
-				    }
-
-				    const auto hashEntries = document.get_object();
-				    CHECK_ERROR(hashEntries);
-
-				    for (const auto& [key, value] : hashEntries)
-				    {
-					    const auto valueStr = value.get_string();
-					    CHECK_ERROR(valueStr);
-
-					    std::size_t hash;
-					    if (const auto ec =
-					            std::from_chars(key.data(), key.data() + key.size(), hash);
-					        ec.ec != std::errc())
-					    {
-						    Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})",
-						               PATH_STR(entry.path()), static_cast<int>(ec.ec));
-						    continue;
-					    }
-					    const auto localizedString = valueStr.value_unsafe();
-					    std::unique_lock lock(mutex);
-					    m_LocalizedStrings.emplace(hash, Misc::ToUTF16(localizedString));
-				    }
-			    });
-		}
-		catch (const std::exception& e)
-		{
-			Log::Error("UmaPyogin: Failed to load hash localization file {}: {}", PATH_STR(path),
-			           e.what());
-		}
-	}
-
-	const std::u16string* HashLocalization::Localize(std::size_t hash) const
-	{
-		if (const auto iter = m_LocalizedStrings.find(hash); iter != m_LocalizedStrings.end())
-		{
-			return &iter->second;
-		}
-		return nullptr;
 	}
 
 	StoryLocalization& StoryLocalization::GetInstance()
@@ -364,5 +286,263 @@ namespace UmaPyogin::Localization
 
 		std::unique_lock lock(mutex);
 		m_RaceTextDataMap.emplace(raceId, std::move(data));
+	}
+
+	DatabaseLocalization& DatabaseLocalization::GetInstance()
+	{
+		static DatabaseLocalization s_Instance;
+		return s_Instance;
+	}
+
+	void
+	DatabaseLocalization::LoadFrom(std::filesystem::path const& textDataDictPath,
+	                               std::filesystem::path const& characterSystemTextDataDictPath,
+	                               std::filesystem::path const& raceJikkyoCommentDataDictPath,
+	                               std::filesystem::path const& raceJikkyoMessageDataDictPath)
+	{
+		// TextData
+		{
+			auto buffer = ReadFileWithPadding(textDataDictPath);
+			if (buffer)
+			{
+				simdjson::dom::parser parser;
+				auto document = parser.parse(buffer->data(),
+				                             buffer->size() - simdjson::SIMDJSON_PADDING, false);
+				if (document.error() != simdjson::SUCCESS)
+				{
+					Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})",
+					           PATH_STR(textDataDictPath), document.error());
+					return;
+				}
+
+				if (document.is_object())
+				{
+					for (const auto& [category, indexTextMap] : document.get_object())
+					{
+						std::size_t categoryValue;
+						if (const auto [ptr, ec] = std::from_chars(
+						        category.data(), category.data() + category.size(), categoryValue);
+						    ec != std::errc{})
+						{
+							Log::Error("UmaPyogin: Failed to parse category {}(in file {})",
+							           category, PATH_STR(textDataDictPath));
+							continue;
+						}
+
+						if (indexTextMap.is_object())
+						{
+							auto& map = m_TextDataMap[categoryValue];
+
+							for (const auto& [index, text] : indexTextMap.get_object())
+							{
+								if (text.is_string())
+								{
+									std::size_t indexValue;
+									if (const auto [ptr, ec] = std::from_chars(
+									        index.data(), index.data() + index.size(), indexValue);
+									    ec != std::errc{})
+									{
+										Log::Error(
+										    "UmaPyogin: Failed to parse index {}(in file {})",
+										    index, PATH_STR(textDataDictPath));
+										continue;
+									}
+
+									map.emplace(indexValue, Misc::ToUTF16(text.get_string()));
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// CharacterSystemTextData
+		{
+			auto buffer = ReadFileWithPadding(characterSystemTextDataDictPath);
+			if (buffer)
+			{
+				simdjson::dom::parser parser;
+				auto document = parser.parse(buffer->data(),
+				                             buffer->size() - simdjson::SIMDJSON_PADDING, false);
+				if (document.error() != simdjson::SUCCESS)
+				{
+					Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})",
+					           PATH_STR(textDataDictPath), document.error());
+					return;
+				}
+
+				if (document.is_object())
+				{
+					for (const auto& [characterId, voiceIdTextMap] : document.get_object())
+					{
+						std::size_t characterIdValue;
+						if (const auto [ptr, ec] = std::from_chars(
+						        characterId.data(), characterId.data() + characterId.size(),
+						        characterIdValue);
+						    ec != std::errc{})
+						{
+							Log::Error("UmaPyogin: Failed to parse characterId {}(in file {})",
+							           characterId, PATH_STR(characterSystemTextDataDictPath));
+							continue;
+						}
+
+						if (voiceIdTextMap.is_object())
+						{
+							auto& map = m_CharacterSystemTextDataMap[characterIdValue];
+
+							for (const auto& [voiceId, text] : voiceIdTextMap.get_object())
+							{
+								if (text.is_string())
+								{
+									std::size_t voiceIdValue;
+
+									if (const auto [ptr, ec] = std::from_chars(
+									        voiceId.data(), voiceId.data() + voiceId.size(),
+									        voiceIdValue);
+									    ec != std::errc{})
+									{
+										Log::Error(
+										    "UmaPyogin: Failed to parse voiceId {}(in file {})",
+										    voiceId, PATH_STR(characterSystemTextDataDictPath));
+										continue;
+									}
+
+									map.emplace(voiceIdValue, Misc::ToUTF16(text.get_string()));
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// RaceJikkyoCommentData
+		{
+			auto buffer = ReadFileWithPadding(raceJikkyoCommentDataDictPath);
+			if (buffer)
+			{
+				simdjson::dom::parser parser;
+				auto document = parser.parse(buffer->data(),
+				                             buffer->size() - simdjson::SIMDJSON_PADDING, false);
+				if (document.error() != simdjson::SUCCESS)
+				{
+					Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})",
+					           PATH_STR(raceJikkyoCommentDataDictPath), document.error());
+					return;
+				}
+
+				if (document.is_object())
+				{
+					for (const auto& [id, text] : document.get_object())
+					{
+						std::size_t idValue;
+						if (const auto [ptr, ec] =
+						        std::from_chars(id.data(), id.data() + id.size(), idValue);
+						    ec != std::errc{})
+						{
+							Log::Error("UmaPyogin: Failed to parse id {}(in file {})", id,
+							           PATH_STR(raceJikkyoCommentDataDictPath));
+							continue;
+						}
+
+						if (text.is_string())
+						{
+							m_RaceJikkyoCommentDataMap.emplace(idValue,
+							                                   Misc::ToUTF16(text.get_string()));
+						}
+					}
+				}
+			}
+		}
+
+		// RaceJikkyoMessageData
+		{
+			auto buffer = ReadFileWithPadding(raceJikkyoMessageDataDictPath);
+			if (buffer)
+			{
+				simdjson::dom::parser parser;
+				auto document = parser.parse(buffer->data(),
+				                             buffer->size() - simdjson::SIMDJSON_PADDING, false);
+				if (document.error() != simdjson::SUCCESS)
+				{
+					Log::Error("UmaPyogin: Failed to parse localization file {}(error: {})",
+					           PATH_STR(raceJikkyoMessageDataDictPath), document.error());
+					return;
+				}
+
+				if (document.is_object())
+				{
+					for (const auto& [id, text] : document.get_object())
+					{
+						std::size_t idValue;
+						if (const auto [ptr, ec] =
+						        std::from_chars(id.data(), id.data() + id.size(), idValue);
+						    ec != std::errc{})
+						{
+							Log::Error("UmaPyogin: Failed to parse id {}(in file {})", id,
+							           PATH_STR(raceJikkyoMessageDataDictPath));
+							continue;
+						}
+
+						if (text.is_string())
+						{
+							m_RaceJikkyoMessageDataMap.emplace(idValue,
+							                                   Misc::ToUTF16(text.get_string()));
+						}
+					}
+				}
+			}
+		}
+	}
+
+	const std::u16string* DatabaseLocalization::GetTextData(std::size_t category, std::size_t index)
+	{
+		if (const auto iter = m_TextDataMap.find(category); iter != m_TextDataMap.end())
+		{
+			if (const auto iter2 = iter->second.find(index); iter2 != iter->second.end())
+			{
+				return &iter2->second;
+			}
+		}
+
+		return nullptr;
+	}
+
+	const std::u16string* DatabaseLocalization::GetCharacterSystemTextData(std::size_t characterId,
+	                                                                       std::size_t voiceId)
+	{
+		if (const auto iter = m_CharacterSystemTextDataMap.find(characterId);
+		    iter != m_CharacterSystemTextDataMap.end())
+		{
+			if (const auto iter2 = iter->second.find(voiceId); iter2 != iter->second.end())
+			{
+				return &iter2->second;
+			}
+		}
+
+		return nullptr;
+	}
+
+	const std::u16string* DatabaseLocalization::GetRaceJikkyoCommentData(std::size_t id)
+	{
+		if (const auto iter = m_RaceJikkyoCommentDataMap.find(id);
+		    iter != m_RaceJikkyoCommentDataMap.end())
+		{
+			return &iter->second;
+		}
+
+		return nullptr;
+	}
+
+	const std::u16string* DatabaseLocalization::GetRaceJikkyoMessageData(std::size_t id)
+	{
+		if (const auto iter = m_RaceJikkyoMessageDataMap.find(id);
+		    iter != m_RaceJikkyoMessageDataMap.end())
+		{
+			return &iter->second;
+		}
+
+		return nullptr;
 	}
 } // namespace UmaPyogin::Localization

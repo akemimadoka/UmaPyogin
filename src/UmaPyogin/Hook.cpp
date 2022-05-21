@@ -3,9 +3,11 @@
 
 #include <filesystem>
 #include <fstream>
+#include <regex>
 #include <string_view>
 #include <thread>
 #include <unordered_set>
+#include <variant>
 
 #include "Hook.h"
 #include "Il2Cpp.h"
@@ -16,6 +18,8 @@
 
 using namespace UmaPyogin;
 using namespace Il2CppSymbols;
+
+using namespace std::literals;
 
 #define DEFINE_HOOK(returnType, name, params)                                                      \
 	using name##_Type = returnType(*) params;                                                      \
@@ -423,6 +427,435 @@ namespace
 		Text_set_lineSpacing(self, 1.03f);
 	}
 
+	int (*Query_GetInt)(void* self, int idx);
+
+	struct ColumnIndex
+	{
+		std::size_t Value;
+		std::optional<std::size_t> QueryResult;
+	};
+
+	struct BindingParam
+	{
+		std::size_t Value;
+		std::optional<std::size_t> BindedValue;
+	};
+
+	using QueryIndex = std::variant<std::monostate, ColumnIndex, BindingParam>;
+
+	struct ILocalizationQuery
+	{
+		virtual ~ILocalizationQuery() = default;
+
+		virtual void AddColumn(std::size_t index, std::u16string_view column)
+		{
+		}
+
+		virtual void AddParam(std::size_t index, std::u16string_view param)
+		{
+		}
+
+		virtual void Bind(std::size_t index, std::size_t value)
+		{
+		}
+
+		virtual void Step(void* query)
+		{
+		}
+
+		virtual const std::u16string* GetString(std::size_t index) = 0;
+	};
+
+	struct TextDataQuery : ILocalizationQuery
+	{
+		QueryIndex Category;
+		QueryIndex Index;
+
+		QueryIndex Text;
+
+		void AddColumn(std::size_t index, std::u16string_view column) override
+		{
+			if (column == u"text"sv)
+			{
+				Text.emplace<ColumnIndex>(index);
+			}
+		}
+
+		void AddParam(std::size_t index, std::u16string_view param) override
+		{
+			if (param == u"category"sv)
+			{
+				Category.emplace<BindingParam>(index);
+			}
+			else if (param == u"index"sv)
+			{
+				Index.emplace<BindingParam>(index);
+			}
+		}
+
+		void Bind(std::size_t index, std::size_t value) override
+		{
+			if (const auto p = std::get_if<BindingParam>(&Category))
+			{
+				if (index == p->Value)
+				{
+					p->BindedValue.emplace(value);
+					return;
+				}
+			}
+
+			if (const auto p = std::get_if<BindingParam>(&Index))
+			{
+				if (index == p->Value)
+				{
+					p->BindedValue.emplace(value);
+				}
+			}
+		}
+
+		const std::u16string* GetString(std::size_t index) override
+		{
+			if (index == std::get<ColumnIndex>(Text).Value)
+			{
+				const auto category = std::get<BindingParam>(Category).BindedValue.value();
+				const auto index = std::get<BindingParam>(Index).BindedValue.value();
+				return Localization::DatabaseLocalization::GetInstance().GetTextData(category,
+				                                                                     index);
+			}
+			return nullptr;
+		}
+	};
+
+	struct CharacterSystemTextQuery : ILocalizationQuery
+	{
+		QueryIndex CharacterId;
+		QueryIndex VoiceId;
+
+		QueryIndex Text;
+
+		void AddColumn(std::size_t index, std::u16string_view column) override
+		{
+			if (column == u"text"sv)
+			{
+				Text.emplace<ColumnIndex>(index);
+			}
+			else if (column == u"voice_id"sv)
+			{
+				VoiceId.emplace<ColumnIndex>(index);
+			}
+		}
+
+		void AddParam(std::size_t index, std::u16string_view param) override
+		{
+			if (param == u"character_id"sv)
+			{
+				CharacterId.emplace<BindingParam>(index);
+			}
+			else if (param == u"voice_id"sv)
+			{
+				VoiceId.emplace<BindingParam>(index);
+			}
+		}
+
+		void Bind(std::size_t index, std::size_t value) override
+		{
+			if (const auto p = std::get_if<BindingParam>(&CharacterId))
+			{
+				if (index == p->Value)
+				{
+					p->BindedValue.emplace(value);
+					return;
+				}
+			}
+
+			if (const auto p = std::get_if<BindingParam>(&VoiceId))
+			{
+				if (index == p->Value)
+				{
+					p->BindedValue.emplace(value);
+				}
+			}
+		}
+
+		void Step(void* query) override
+		{
+			assert(std::holds_alternative<BindingParam>(CharacterId));
+			if (const auto p = std::get_if<ColumnIndex>(&VoiceId))
+			{
+				const auto voiceId = Query_GetInt(query, p->Value);
+				p->QueryResult.emplace(voiceId);
+			}
+		}
+
+		const std::u16string* GetString(std::size_t index) override
+		{
+			if (index == std::get<ColumnIndex>(Text).Value)
+			{
+				const auto characterId = std::get<BindingParam>(CharacterId).BindedValue.value();
+				const auto voiceId = [&] {
+					if (const auto column = std::get_if<ColumnIndex>(&VoiceId))
+					{
+						return column->QueryResult.value();
+					}
+					else
+					{
+						return std::get<BindingParam>(VoiceId).BindedValue.value();
+					}
+				}();
+
+				return Localization::DatabaseLocalization::GetInstance().GetCharacterSystemTextData(
+				    characterId, voiceId);
+			}
+			return nullptr;
+		}
+	};
+
+	struct RaceJikkyoCommentQuery : ILocalizationQuery
+	{
+		QueryIndex Id;
+
+		QueryIndex Text;
+
+		void AddColumn(std::size_t index, std::u16string_view column) override
+		{
+			if (column == u"text"sv)
+			{
+				Text.emplace<ColumnIndex>(index);
+			}
+			else if (column == u"id"sv)
+			{
+				Id.emplace<ColumnIndex>(index);
+			}
+		}
+
+		void AddParam(std::size_t index, std::u16string_view param) override
+		{
+			if (param == u"id"sv)
+			{
+				Id.emplace<BindingParam>(index);
+			}
+		}
+
+		void Bind(std::size_t index, std::size_t value) override
+		{
+			if (const auto p = std::get_if<BindingParam>(&Id))
+			{
+				if (index == p->Value)
+				{
+					p->BindedValue.emplace(value);
+				}
+			}
+		}
+
+		void Step(void* query) override
+		{
+			if (const auto p = std::get_if<ColumnIndex>(&Text))
+			{
+				const auto id = Query_GetInt(query, p->Value);
+				p->QueryResult.emplace(id);
+			}
+		}
+
+		const std::u16string* GetString(std::size_t index) override
+		{
+			if (index == std::get<ColumnIndex>(Text).Value)
+			{
+				const auto id = [&] {
+					if (const auto column = std::get_if<ColumnIndex>(&Id))
+					{
+						return column->QueryResult.value();
+					}
+					else
+					{
+						return std::get<BindingParam>(Id).BindedValue.value();
+					}
+				}();
+				return Localization::DatabaseLocalization::GetInstance().GetRaceJikkyoCommentData(
+				    id);
+			}
+			return nullptr;
+		}
+	};
+
+	struct RaceJikkyoMessageQuery : ILocalizationQuery
+	{
+		QueryIndex Id;
+
+		QueryIndex Text;
+
+		void AddColumn(std::size_t index, std::u16string_view column) override
+		{
+			if (column == u"text"sv)
+			{
+				Text.emplace<ColumnIndex>(index);
+			}
+			else if (column == u"id"sv)
+			{
+				Id.emplace<ColumnIndex>(index);
+			}
+		}
+
+		void AddParam(std::size_t index, std::u16string_view param) override
+		{
+			if (param == u"id"sv)
+			{
+				Id.emplace<BindingParam>(index);
+			}
+		}
+
+		void Bind(std::size_t index, std::size_t value) override
+		{
+			if (const auto p = std::get_if<BindingParam>(&Id))
+			{
+				if (index == p->Value)
+				{
+					p->BindedValue.emplace(value);
+				}
+			}
+		}
+
+		void Step(void* query) override
+		{
+			if (const auto p = std::get_if<ColumnIndex>(&Text))
+			{
+				const auto id = Query_GetInt(query, p->Value);
+				p->QueryResult.emplace(id);
+			}
+		}
+
+		const std::u16string* GetString(std::size_t index) override
+		{
+			if (index == std::get<ColumnIndex>(Text).Value)
+			{
+				const auto id = [&] {
+					if (const auto column = std::get_if<ColumnIndex>(&Id))
+					{
+						return column->QueryResult.value();
+					}
+					else
+					{
+						return std::get<BindingParam>(Id).BindedValue.value();
+					}
+				}();
+				return Localization::DatabaseLocalization::GetInstance().GetRaceJikkyoMessageData(
+				    id);
+			}
+			return nullptr;
+		}
+	};
+
+	std::unordered_map<void*, std::unique_ptr<ILocalizationQuery>> TextQueries;
+
+	DEFINE_HOOK(void*, Query_ctor, (void* self, void* conn, Il2CppString* sql))
+	{
+		static const std::basic_regex<char16_t> statementPattern(
+		    uR"(SELECT (.+?) FROM `(.+?)`(?: WHERE (.+))?;)");
+		static const std::basic_regex<char16_t> columnPattern(uR"(,?`(\w+)`)");
+		static const std::basic_regex<char16_t> whereClausePattern(uR"((?:AND )?`(\w+)=?`)");
+
+		std::match_results<const char16_t*> matches;
+		if (std::regex_match(sql->chars, matches, statementPattern))
+		{
+			const auto columns = matches[1].str();
+			const auto table = matches[2].str();
+			const auto whereClause =
+			    matches.size() == 4 ? std::optional(matches[3].str()) : std::nullopt;
+
+			std::unique_ptr<ILocalizationQuery> query;
+
+			if (table == u"text_data"sv)
+			{
+				query = std::make_unique<TextDataQuery>();
+			}
+			else if (table == u"character_system_text"sv)
+			{
+				query = std::make_unique<CharacterSystemTextQuery>();
+			}
+			else if (table == u"race_jikkyo_comment"sv)
+			{
+				query = std::make_unique<RaceJikkyoCommentQuery>();
+			}
+			else if (table == u"race_jikkyo_message"sv)
+			{
+				query = std::make_unique<RaceJikkyoMessageQuery>();
+			}
+			else
+			{
+				goto NormalPath;
+			}
+
+			auto columnsPtr = columns.c_str();
+			std::size_t columnIndex{};
+			while (std::regex_search(columnsPtr, matches, columnPattern))
+			{
+				const auto column = matches[1].str();
+				query->AddColumn(columnIndex++, column);
+
+				columnsPtr = matches.suffix().first;
+			}
+
+			// 有 WHERE 子句的查询
+			if (whereClause)
+			{
+				auto whereClausePtr = whereClause->c_str();
+				std::size_t paramIndex = 1;
+				while (std::regex_search(whereClausePtr, matches, whereClausePattern))
+				{
+					const auto param = matches[1].str();
+					query->AddParam(paramIndex++, param);
+
+					whereClausePtr = matches.suffix().first;
+				}
+			}
+
+			TextQueries.emplace(self, std::move(query));
+		}
+
+	NormalPath:
+		return Query_ctor_Orig(self, conn, sql);
+	}
+
+	DEFINE_HOOK(void, PreparedQuery_BindInt, (void* self, std::int32_t idx, std::int32_t value))
+	{
+		if (const auto iter = TextQueries.find(self); iter != TextQueries.end())
+		{
+			iter->second->Bind(idx, value);
+		}
+
+		PreparedQuery_BindInt_Orig(self, idx, value);
+	}
+
+	DEFINE_HOOK(bool, Query_Step, (void* self))
+	{
+		const auto result = Query_Step_Orig(self);
+
+		if (const auto iter = TextQueries.find(self); iter != TextQueries.end())
+		{
+			iter->second->Step(self);
+		}
+
+		return result;
+	}
+
+	DEFINE_HOOK(Il2CppString*, Query_GetText, (void* self, std::int32_t idx))
+	{
+		if (const auto iter = TextQueries.find(self); iter != TextQueries.end())
+		{
+			if (const auto localizedStr = iter->second->GetString(idx))
+			{
+				return ToIl2CppString(*localizedStr);
+			}
+		}
+
+		return Query_GetText_Orig(self, idx);
+	}
+
+	DEFINE_HOOK(void, Query_Dispose, (void* self))
+	{
+		TextQueries.erase(self);
+		Query_Dispose_Orig(self);
+	}
+
 #define CHECK_NULL(expr)                                                                           \
 	if (!(expr))                                                                                   \
 	{                                                                                              \
@@ -573,6 +1006,61 @@ namespace
 			CHECK_NULL(TextCommon_Awake_Method);
 
 			HOOK_FUNC(TextCommon_Awake, TextCommon_Awake_Method->methodPointer);
+		}
+
+		// LibNative.Runtime.dll
+		{
+			const auto libNativeAssembly =
+			    il2cpp_domain_assembly_open(domain, "LibNative.Runtime.dll");
+			CHECK_NULL(libNativeAssembly);
+
+			const auto libNativeImage = il2cpp_assembly_get_image(libNativeAssembly);
+			CHECK_NULL(libNativeImage);
+
+			const auto QueryClass =
+			    il2cpp_class_from_name(libNativeImage, "LibNative.Sqlite3", "Query");
+			CHECK_NULL(QueryClass);
+
+			const auto Query_ctor_Method =
+			    il2cpp_class_get_method_from_name(QueryClass, ".ctor", 2);
+			CHECK_NULL(Query_ctor_Method);
+
+			HOOK_FUNC(Query_ctor, Query_ctor_Method->methodPointer);
+
+			const auto Query_GetInt_Method =
+			    il2cpp_class_get_method_from_name(QueryClass, "GetInt", 1);
+			CHECK_NULL(Query_GetInt_Method);
+
+			Query_GetInt =
+			    reinterpret_cast<decltype(Query_GetInt)>(Query_GetInt_Method->methodPointer);
+			CHECK_NULL(Query_GetInt);
+
+			const auto Query_GetText_Method =
+			    il2cpp_class_get_method_from_name(QueryClass, "GetText", 1);
+			CHECK_NULL(Query_GetText_Method);
+
+			HOOK_FUNC(Query_GetText, Query_GetText_Method->methodPointer);
+
+			const auto Query_Step_Method = il2cpp_class_get_method_from_name(QueryClass, "Step", 0);
+			CHECK_NULL(Query_Step_Method);
+
+			HOOK_FUNC(Query_Step, Query_Step_Method->methodPointer);
+
+			const auto Query_Dispose_Method =
+			    il2cpp_class_get_method_from_name(QueryClass, "Dispose", 0);
+			CHECK_NULL(Query_Dispose_Method);
+
+			HOOK_FUNC(Query_Dispose, Query_Dispose_Method->methodPointer);
+
+			const auto PreparedQueryClass =
+			    il2cpp_class_from_name(libNativeImage, "LibNative.Sqlite3", "PreparedQuery");
+			CHECK_NULL(PreparedQueryClass);
+
+			const auto PreparedQuery_BindInt_Method =
+			    il2cpp_class_get_method_from_name(PreparedQueryClass, "BindInt", 2);
+			CHECK_NULL(PreparedQuery_BindInt_Method);
+
+			HOOK_FUNC(PreparedQuery_BindInt, PreparedQuery_BindInt_Method->methodPointer);
 		}
 
 		// UnityEngine.AssetBundleModule.dll
@@ -750,19 +1238,17 @@ namespace
 			staticLocalization.LoadFrom(staticLocalizationFilePath);
 		}
 
-		const std::filesystem::path hashLocalizationDirPath = config.HashLocalizationDirPath;
-		if (std::filesystem::is_directory(hashLocalizationDirPath))
-		{
-			auto& hashLocalization = Localization::HashLocalization::GetInstance();
-			hashLocalization.LoadFrom(hashLocalizationDirPath);
-		}
-
 		const std::filesystem::path storyLocalizationDirPath = config.StoryLocalizationDirPath;
 		if (std::filesystem::is_directory(storyLocalizationDirPath))
 		{
 			auto& storyLocalization = Localization::StoryLocalization::GetInstance();
 			storyLocalization.LoadFrom(storyLocalizationDirPath);
 		}
+
+		auto& databaseLocalization = Localization::DatabaseLocalization::GetInstance();
+		databaseLocalization.LoadFrom(
+		    config.TextDataDictPath, config.CharacterSystemTextDataDictPath,
+		    config.RaceJikkyoCommentDataDictPath, config.RaceJikkyoMessageDataDictPath);
 
 		Log::Info("UmaPyogin: Initialized");
 		return ret;
