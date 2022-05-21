@@ -8,7 +8,7 @@
 #include <type_traits>
 #include <vector>
 
-#if __has_include(<concepts>)
+#if __has_include(<concepts>) && __cpp_lib_concepts >= 202002L
 #include <concepts>
 #define HAS_CONCEPTS 1
 #endif
