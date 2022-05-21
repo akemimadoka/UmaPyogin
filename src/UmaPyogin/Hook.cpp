@@ -433,12 +433,20 @@ namespace
 	{
 		std::size_t Value;
 		std::optional<std::size_t> QueryResult;
+
+		explicit ColumnIndex(std::size_t value) : Value(value)
+		{
+		}
 	};
 
 	struct BindingParam
 	{
 		std::size_t Value;
 		std::optional<std::size_t> BindedValue;
+
+		explicit BindingParam(std::size_t value) : Value(value)
+		{
+		}
 	};
 
 	using QueryIndex = std::variant<std::monostate, ColumnIndex, BindingParam>;
@@ -447,11 +455,11 @@ namespace
 	{
 		virtual ~ILocalizationQuery() = default;
 
-		virtual void AddColumn(std::size_t index, std::u16string_view column)
+		virtual void AddColumn(std::size_t index, std::string_view column)
 		{
 		}
 
-		virtual void AddParam(std::size_t index, std::u16string_view param)
+		virtual void AddParam(std::size_t index, std::string_view param)
 		{
 		}
 
@@ -473,21 +481,21 @@ namespace
 
 		QueryIndex Text;
 
-		void AddColumn(std::size_t index, std::u16string_view column) override
+		void AddColumn(std::size_t index, std::string_view column) override
 		{
-			if (column == u"text"sv)
+			if (column == "text"sv)
 			{
 				Text.emplace<ColumnIndex>(index);
 			}
 		}
 
-		void AddParam(std::size_t index, std::u16string_view param) override
+		void AddParam(std::size_t index, std::string_view param) override
 		{
-			if (param == u"category"sv)
+			if (param == "category"sv)
 			{
 				Category.emplace<BindingParam>(index);
 			}
-			else if (param == u"index"sv)
+			else if (param == "index"sv)
 			{
 				Index.emplace<BindingParam>(index);
 			}
@@ -533,25 +541,25 @@ namespace
 
 		QueryIndex Text;
 
-		void AddColumn(std::size_t index, std::u16string_view column) override
+		void AddColumn(std::size_t index, std::string_view column) override
 		{
-			if (column == u"text"sv)
+			if (column == "text"sv)
 			{
 				Text.emplace<ColumnIndex>(index);
 			}
-			else if (column == u"voice_id"sv)
+			else if (column == "voice_id"sv)
 			{
 				VoiceId.emplace<ColumnIndex>(index);
 			}
 		}
 
-		void AddParam(std::size_t index, std::u16string_view param) override
+		void AddParam(std::size_t index, std::string_view param) override
 		{
-			if (param == u"character_id"sv)
+			if (param == "character_id"sv)
 			{
 				CharacterId.emplace<BindingParam>(index);
 			}
-			else if (param == u"voice_id"sv)
+			else if (param == "voice_id"sv)
 			{
 				VoiceId.emplace<BindingParam>(index);
 			}
@@ -614,23 +622,23 @@ namespace
 	{
 		QueryIndex Id;
 
-		QueryIndex Text;
+		QueryIndex Message;
 
-		void AddColumn(std::size_t index, std::u16string_view column) override
+		void AddColumn(std::size_t index, std::string_view column) override
 		{
-			if (column == u"text"sv)
+			if (column == "message"sv)
 			{
-				Text.emplace<ColumnIndex>(index);
+				Message.emplace<ColumnIndex>(index);
 			}
-			else if (column == u"id"sv)
+			else if (column == "id"sv)
 			{
 				Id.emplace<ColumnIndex>(index);
 			}
 		}
 
-		void AddParam(std::size_t index, std::u16string_view param) override
+		void AddParam(std::size_t index, std::string_view param) override
 		{
-			if (param == u"id"sv)
+			if (param == "id"sv)
 			{
 				Id.emplace<BindingParam>(index);
 			}
@@ -649,7 +657,7 @@ namespace
 
 		void Step(void* query) override
 		{
-			if (const auto p = std::get_if<ColumnIndex>(&Text))
+			if (const auto p = std::get_if<ColumnIndex>(&Id))
 			{
 				const auto id = Query_GetInt(query, p->Value);
 				p->QueryResult.emplace(id);
@@ -658,7 +666,7 @@ namespace
 
 		const std::u16string* GetString(std::size_t index) override
 		{
-			if (index == std::get<ColumnIndex>(Text).Value)
+			if (index == std::get<ColumnIndex>(Message).Value)
 			{
 				const auto id = [&] {
 					if (const auto column = std::get_if<ColumnIndex>(&Id))
@@ -681,23 +689,23 @@ namespace
 	{
 		QueryIndex Id;
 
-		QueryIndex Text;
+		QueryIndex Message;
 
-		void AddColumn(std::size_t index, std::u16string_view column) override
+		void AddColumn(std::size_t index, std::string_view column) override
 		{
-			if (column == u"text"sv)
+			if (column == "message"sv)
 			{
-				Text.emplace<ColumnIndex>(index);
+				Message.emplace<ColumnIndex>(index);
 			}
-			else if (column == u"id"sv)
+			else if (column == "id"sv)
 			{
 				Id.emplace<ColumnIndex>(index);
 			}
 		}
 
-		void AddParam(std::size_t index, std::u16string_view param) override
+		void AddParam(std::size_t index, std::string_view param) override
 		{
-			if (param == u"id"sv)
+			if (param == "id"sv)
 			{
 				Id.emplace<BindingParam>(index);
 			}
@@ -716,7 +724,7 @@ namespace
 
 		void Step(void* query) override
 		{
-			if (const auto p = std::get_if<ColumnIndex>(&Text))
+			if (const auto p = std::get_if<ColumnIndex>(&Id))
 			{
 				const auto id = Query_GetInt(query, p->Value);
 				p->QueryResult.emplace(id);
@@ -725,7 +733,7 @@ namespace
 
 		const std::u16string* GetString(std::size_t index) override
 		{
-			if (index == std::get<ColumnIndex>(Text).Value)
+			if (index == std::get<ColumnIndex>(Message).Value)
 			{
 				const auto id = [&] {
 					if (const auto column = std::get_if<ColumnIndex>(&Id))
@@ -748,13 +756,14 @@ namespace
 
 	DEFINE_HOOK(void*, Query_ctor, (void* self, void* conn, Il2CppString* sql))
 	{
-		static const std::basic_regex<char16_t> statementPattern(
-		    uR"(SELECT (.+?) FROM `(.+?)`(?: WHERE (.+))?;)");
-		static const std::basic_regex<char16_t> columnPattern(uR"(,?`(\w+)`)");
-		static const std::basic_regex<char16_t> whereClausePattern(uR"((?:AND )?`(\w+)=?`)");
+		const auto sqlStr = Misc::ToUTF8(sql->chars);
 
-		std::match_results<const char16_t*> matches;
-		if (std::regex_match(sql->chars, matches, statementPattern))
+		static const std::regex statementPattern(R"(SELECT (.+?) FROM `(.+?)`(?: WHERE (.+))?;)");
+		static const std::regex columnPattern(R"(,?`(\w+)`)");
+		static const std::regex whereClausePattern(R"((?:AND )?`(\w+)=?`)");
+
+		std::cmatch matches;
+		if (std::regex_match(sqlStr.c_str(), matches, statementPattern))
 		{
 			const auto columns = matches[1].str();
 			const auto table = matches[2].str();
@@ -763,19 +772,19 @@ namespace
 
 			std::unique_ptr<ILocalizationQuery> query;
 
-			if (table == u"text_data"sv)
+			if (table == "text_data"sv)
 			{
 				query = std::make_unique<TextDataQuery>();
 			}
-			else if (table == u"character_system_text"sv)
+			else if (table == "character_system_text"sv)
 			{
 				query = std::make_unique<CharacterSystemTextQuery>();
 			}
-			else if (table == u"race_jikkyo_comment"sv)
+			else if (table == "race_jikkyo_comment"sv)
 			{
 				query = std::make_unique<RaceJikkyoCommentQuery>();
 			}
-			else if (table == u"race_jikkyo_message"sv)
+			else if (table == "race_jikkyo_message"sv)
 			{
 				query = std::make_unique<RaceJikkyoMessageQuery>();
 			}
